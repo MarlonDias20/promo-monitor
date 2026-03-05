@@ -21,6 +21,8 @@ PERFIS_MONITORADOS = [
     "@urubupromo",
     "@CapivaraPromoss",
     "@lobaopromo",
+    "@nossaspromocoes",
+    "@sdmlinks",
 ]
 
 # ------------------------------------------------------------------
