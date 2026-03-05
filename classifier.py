@@ -13,10 +13,20 @@ Critérios de classificação:
 - Tier B: Cupom comum, desconto pequeno (abaixo de 40%), promoção recorrente sem urgência.
 - Tier N: Não é promoção (post informativo, meme, notícia sem oferta).
 
+Categorias disponíveis (use exatamente um desses valores):
+"Eletrônicos", "Smartphones", "Informática", "Games", "Eletrodomésticos",
+"Moda e Vestuário", "Beleza e Perfumaria", "Saúde e Bem-estar",
+"Alimentos e Bebidas", "Livros e Cursos", "Casa e Decoração",
+"Brinquedos", "Esporte e Lazer", "Serviços e Assinaturas", "Viagens", "Outros"
+
+Escolha a categoria que melhor descreve o produto/serviço da oferta.
+Se não for possível identificar, use "Outros".
+
 Retorne exatamente neste formato JSON:
 {
   "tier": "S" | "A" | "B" | "N",
   "produto": "nome do produto ou null",
+  "categoria": "uma das categorias listadas acima",
   "loja": "nome da loja ou null",
   "desconto_estimado": número percentual ou null,
   "preco_original": "valor como string ou null",
@@ -71,17 +81,27 @@ class Classifier:
             logger.error(f"Erro na classificação: {e}")
             return self._fallback(str(e))
 
+    CATEGORIAS_VALIDAS = {
+        "Eletrônicos", "Smartphones", "Informática", "Games", "Eletrodomésticos",
+        "Moda e Vestuário", "Beleza e Perfumaria", "Saúde e Bem-estar",
+        "Alimentos e Bebidas", "Livros e Cursos", "Casa e Decoração",
+        "Brinquedos", "Esporte e Lazer", "Serviços e Assinaturas", "Viagens", "Outros",
+    }
+
     def _validate(self, result: dict):
         """Garante que os campos obrigatórios existem e são válidos."""
         assert result.get("tier") in ("S", "A", "B", "N"), "Tier inválido"
         assert isinstance(result.get("urgencia"), (int, float)), "Urgência inválida"
         assert isinstance(result.get("motivo"), str), "Motivo inválido"
+        if result.get("categoria") not in self.CATEGORIAS_VALIDAS:
+            result["categoria"] = "Outros"
 
     def _fallback(self, motivo: str) -> dict:
         """Retorno seguro quando a classificação falha — não bloqueia o pipeline."""
         return {
             "tier": "N",
             "produto": None,
+            "categoria": "Outros",
             "loja": None,
             "desconto_estimado": None,
             "preco_original": None,

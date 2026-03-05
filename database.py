@@ -1,6 +1,6 @@
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import (
@@ -53,6 +53,7 @@ class Promocao(Base):
     # Campos preenchidos pelo classificador
     tier               = Column(String(1), nullable=False, default="N", index=True)
     produto            = Column(Text, nullable=True)
+    categoria          = Column(String(50), nullable=False, default="Outros", index=True)
     loja               = Column(Text, nullable=True)
     desconto_estimado  = Column(Numeric(5, 2), nullable=True)
     preco_original     = Column(String(50), nullable=True)
@@ -78,6 +79,19 @@ class Database:
 
     def _criar_tabelas(self):
         Base.metadata.create_all(self.engine)
+        self._aplicar_migracoes()
+
+    def _aplicar_migracoes(self):
+        """Adiciona colunas novas em bancos existentes sem perder dados."""
+        with self.engine.connect() as conn:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE promocoes ADD COLUMN categoria VARCHAR(50) NOT NULL DEFAULT 'Outros'"
+                ))
+                conn.commit()
+                logger.info("Migração aplicada: coluna 'categoria' adicionada.")
+            except Exception:
+                pass  # coluna já existe — ignorar
 
     @contextmanager
     def _session(self):
@@ -114,6 +128,7 @@ class Database:
                     publicado_em      = tweet.publicado_em,
                     tier              = classificacao.get("tier", "N"),
                     produto           = classificacao.get("produto"),
+                    categoria         = classificacao.get("categoria", "Outros"),
                     loja              = classificacao.get("loja"),
                     desconto_estimado = classificacao.get("desconto_estimado"),
                     preco_original    = classificacao.get("preco_original"),
@@ -188,6 +203,21 @@ class Database:
                 "notificadas": notificadas,
                 "pendentes": total - notificadas,
             }
+
+    def excluir_antigos(self, dias: int = 7) -> int:
+        """
+        Remove promoções criadas há mais de `dias` dias.
+        Retorna a quantidade de registros excluídos.
+        """
+        corte = datetime.utcnow() - timedelta(days=dias)
+        with self._session() as s:
+            deletados = (
+                s.query(Promocao)
+                .filter(Promocao.criado_em < corte)
+                .delete(synchronize_session=False)
+            )
+        logger.info(f"Limpeza do banco: {deletados} promoção(ões) com mais de {dias} dias removida(s).")
+        return deletados
 
     # ------------------------------------------------------------------
     # Perfis

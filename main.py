@@ -77,11 +77,18 @@ def resumo_diario():
     logger.info(f"Resumo diário enviado: {stats}")
 
 
+def limpeza_semanal():
+    """Remove promoções com mais de 7 dias — executa toda segunda às 03h."""
+    removidos = db.excluir_antigos(dias=7)
+    logger.info(f"Limpeza semanal concluída: {removidos} registro(s) removido(s).")
+
+
 # ------------------------------------------------------------------
 # Agendamento
 # ------------------------------------------------------------------
 schedule.every(config.INTERVALO_POLLING).seconds.do(ciclo)
 schedule.every().day.at("20:00").do(resumo_diario)
+schedule.every().monday.at("03:00").do(limpeza_semanal)
 
 
 # ------------------------------------------------------------------

@@ -11,17 +11,23 @@ load_dotenv()
 # Perfis monitorados — adicione ou remova à vontade
 # ------------------------------------------------------------------
 PERFIS_MONITORADOS = [
-    "@opromocionista",
-    "@pelando",
-    "@desconto_e_oferta",
-    # Adicione quantos quiser
+    "@LinksBrazil",
+    "@oigatuna",
+    "@gamerdasofertas",
+    "@buscopobres",
+    "@tudonapromo",
+    "@xetdaspromocoes",
+    "@ofcpromo",
+    "@urubupromo",
+    "@CapivaraPromoss",
+    "@lobaopromo",
 ]
 
 # ------------------------------------------------------------------
 # Nitter — instância RSS
 # Troque se a instância atual estiver fora do ar
 # ------------------------------------------------------------------
-NITTER_BASE = os.getenv("NITTER_BASE", "https://nitter.privacydev.net")
+NITTER_BASE = os.getenv("NITTER_BASE", "https://twiiit.com")
 
 # ------------------------------------------------------------------
 # Intervalo de polling (segundos)
