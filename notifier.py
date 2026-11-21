@@ -1,5 +1,6 @@
 import logging
 from database import Promocao
+from tempo import momento_notificacao
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,12 @@ class TelegramNotifier:
 
         linhas.append(f"\n⚡ Urgência: {'🔴' * min(int(p.urgencia / 2), 5)}")
         linhas.append(f"💬 _{self._escape(p.motivo)}_")
+
+        # Momento do tweet (fuso de Brasília) — saber se ainda dá tempo.
+        momento = momento_notificacao(p.publicado_em.isoformat() if p.publicado_em else None)
+        if momento:
+            linhas.append(f"📅 {self._escape(momento)}")
+
         linhas.append(f"\n🔗 [Ver tweet]({p.tweet_url})")
         linhas.append(f"👤 @{self._escape(p.perfil_origem)}")
 

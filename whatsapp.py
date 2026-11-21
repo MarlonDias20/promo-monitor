@@ -23,6 +23,7 @@ from typing import Optional
 import httpx
 
 from database import Promocao
+from tempo import momento_notificacao
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,11 @@ def formatar(promocao: Promocao) -> str:
 
     if promocao.motivo:
         linhas.append(f"💬 {promocao.motivo}")
+
+    # Momento do tweet (fuso de Brasília) — saber se ainda dá tempo.
+    momento = momento_notificacao(promocao.publicado_em.isoformat() if promocao.publicado_em else None)
+    if momento:
+        linhas.append(f"📅 {momento}")
 
     linhas.append(f"🔗 {promocao.tweet_url}")
     linhas.append(f"👤 @{promocao.perfil_origem}")
