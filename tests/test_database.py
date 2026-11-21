@@ -1,14 +1,15 @@
 """
-Teste do banco de dados — valida inserção, deduplicação e queries.
-Usa SQLite em memória, sem efeito colateral.
-Uso: python test_database.py
+Testes do banco de dados — valida inserção, deduplicação e queries.
+SQLite em memória: sem efeito colateral e determinístico.
+
+Antes um script main() (PR de saúde): mesmas validações, agora pytest.
 """
 from datetime import datetime
 from dataclasses import dataclass
+
 from database import Database
 
 
-# Simula a dataclass Tweet do worker sem precisar importar dependências externas
 @dataclass
 class TweetFake:
     hash: str
@@ -52,16 +53,9 @@ CLASSIFICACAO_N = {
 }
 
 
-def main():
-    # Banco em memória — não cria arquivo
+def test_insere_promocoes_e_deduplica():
     db = Database("sqlite:///:memory:")
 
-    print("\n" + "="*60)
-    print("TESTANDO DATABASE")
-    print("="*60)
-
-    # 1. Inserção básica
-    print("\n[1] Inserindo promoções...")
     t1 = TweetFake("abc111", "https://x.com/1", "Bug! Notebook por R$0,01!", "opromocionista", datetime.utcnow())
     t2 = TweetFake("abc222", "https://x.com/2", "iPhone 14 com 45% OFF!", "pelando", datetime.utcnow())
     t3 = TweetFake("abc333", "https://x.com/3", "Novo trailer do iPhone 17", "opromocionista", datetime.utcnow())
@@ -69,60 +63,70 @@ def main():
     p1 = db.salvar_promocao(t1, CLASSIFICACAO_S)
     p2 = db.salvar_promocao(t2, CLASSIFICACAO_A)
     p3 = db.salvar_promocao(t3, CLASSIFICACAO_N)
+    assert p1 is not None and p2 is not None and p3 is not None
 
-    assert p1 is not None, "p1 deveria ter sido salvo"
-    assert p2 is not None, "p2 deveria ter sido salvo"
-    assert p3 is not None, "p3 deveria ter sido salvo"
-    print("  ✅ 3 promoções inseridas")
+    # Deduplicação por hash — mesma inserção retorna None.
+    assert db.salvar_promocao(t1, CLASSIFICACAO_S) is None
 
-    # 2. Deduplicação
-    print("\n[2] Testando deduplicação...")
-    duplicado = db.salvar_promocao(t1, CLASSIFICACAO_S)
-    assert duplicado is None, "Duplicata deveria retornar None"
-    print("  ✅ Duplicata ignorada corretamente")
 
-    # 3. Stats
-    print("\n[3] Stats do banco:")
+def test_stats_contam_por_tier():
+    db = Database("sqlite:///:memory:")
+    db.salvar_promocao(TweetFake("h1", "https://x.com/1", "Bug!", "a", datetime.utcnow()), CLASSIFICACAO_S)
+    db.salvar_promocao(TweetFake("h2", "https://x.com/2", "Oferta!", "b", datetime.utcnow()), CLASSIFICACAO_A)
+    db.salvar_promocao(TweetFake("h3", "https://x.com/3", "Trailer", "c", datetime.utcnow()), CLASSIFICACAO_N)
+
     s = db.stats()
     assert s["total"] == 3
     assert s["por_tier"]["S"] == 1
     assert s["por_tier"]["A"] == 1
     assert s["por_tier"]["N"] == 1
-    print(f"  Total: {s['total']} | S:{s['por_tier']['S']} A:{s['por_tier']['A']} B:{s['por_tier']['B']} N:{s['por_tier']['N']}")
-    print("  ✅ Stats corretos")
+    assert s["notificadas"] == 0
+    assert s["pendentes"] == 3
 
-    # 4. Pendentes de notificação
-    print("\n[4] Pendentes de notificação (tiers S e A)...")
+
+def test_pendentes_e_marcar_notificado():
+    db = Database("sqlite:///:memory:")
+    p1 = db.salvar_promocao(TweetFake("h1", "https://x.com/1", "Bug!", "a", datetime.utcnow()), CLASSIFICACAO_S)
+    p2 = db.salvar_promocao(TweetFake("h2", "https://x.com/2", "Oferta!", "b", datetime.utcnow()), CLASSIFICACAO_A)
+    db.salvar_promocao(TweetFake("h3", "https://x.com/3", "Trailer", "c", datetime.utcnow()), CLASSIFICACAO_N)
+
     pendentes = db.buscar_pendentes_notificacao({"S", "A"})
     assert len(pendentes) == 2
-    print(f"  {len(pendentes)} promoções pendentes (esperado: 2)")
-    print("  ✅ Query de pendentes correta")
+    # Urgência maior primeiro — a ordem da fila de notificação.
+    assert pendentes[0].id == p1.id
 
-    # 5. Marcar como notificado
-    print("\n[5] Marcando como notificado...")
     db.marcar_notificado(p1.id)
     db.marcar_notificado(p2.id)
-    pendentes_apos = db.buscar_pendentes_notificacao({"S", "A"})
-    assert len(pendentes_apos) == 0
-    print("  ✅ marcar_notificado funcionando")
+    assert len(db.buscar_pendentes_notificacao({"S", "A"})) == 0
 
-    # 6. listar_hashes (para sync do worker)
-    print("\n[6] Listando hashes para sync do worker...")
-    hashes = db.listar_hashes()
-    assert set(hashes) == {"abc111", "abc222", "abc333"}
-    print(f"  {len(hashes)} hashes recuperados")
-    print("  ✅ listar_hashes correto")
 
-    # 7. Sincronizar perfis
-    print("\n[7] Sincronizando perfis...")
+def test_listar_hashes_para_sync_do_worker():
+    db = Database("sqlite:///:memory:")
+    db.salvar_promocao(TweetFake("abc111", "https://x.com/1", "Bug!", "a", datetime.utcnow()), CLASSIFICACAO_S)
+    db.salvar_promocao(TweetFake("abc222", "https://x.com/2", "Oferta!", "b", datetime.utcnow()), CLASSIFICACAO_A)
+    db.salvar_promocao(TweetFake("abc333", "https://x.com/3", "Trailer", "c", datetime.utcnow()), CLASSIFICACAO_N)
+
+    assert set(db.listar_hashes()) == {"abc111", "abc222", "abc333"}
+
+
+def test_sincronizar_perfis_nao_duplica():
+    db = Database("sqlite:///:memory:")
     db.sincronizar_perfis(["opromocionista", "pelando", "desconto_e_oferta"])
-    db.sincronizar_perfis(["opromocionista"])  # não deve duplicar
-    print("  ✅ Perfis sincronizados sem duplicata")
+    db.sincronizar_perfis(["opromocionista"])
+    db.sincronizar_perfis(["opromocionista", "pelando"])
+    # Idempotente: re-sincronizar não duplica nem cria novos.
+    with db._Session() as s:
+        assert s.query(__import__("database").PerfilMonitorado).count() == 3
 
-    print("\n" + "="*60)
-    print("Database OK! Todos os testes passaram.")
-    print("="*60 + "\n")
 
+def test_excluir_antigos_limpa_registros_velhos():
+    db = Database("sqlite:///:memory:")
+    db.salvar_promocao(TweetFake("h1", "https://x.com/1", "Bug!", "a", datetime.utcnow()), CLASSIFICACAO_S)
 
-if __name__ == "__main__":
-    main()
+    # Puxa criado_em para 10 dias atrás e roda a limpeza de 7 dias.
+    from database import Promocao
+    with db._session() as s:
+        s.query(Promocao).update({"criado_em": datetime.utcnow() - __import__("datetime").timedelta(days=10)})
+
+    assert db.excluir_antigos(dias=7) == 1
+    assert db.stats()["total"] == 0

@@ -37,12 +37,31 @@ Retorne exatamente neste formato JSON:
 
 
 class Classifier:
-    def __init__(self, api_key: str):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://open.bigmodel.cn/api/paas/v4/",
+        model: str = "glm-4",
+        timeout: float = 30.0,
+        max_retries: int = 1,
+    ):
+        """
+        base_url e model configuráveis (config.py lê ZAI_BASE_URL/ZAI_MODEL):
+        a conta internacional do Z.ai usa https://api.z.ai/api/paas/v4/ com
+        modelos glm-4.6/glm-4.7/glm-5.x; a plataforma CN (Zhipu BigModel)
+        usa https://open.bigmodel.cn/api/paas/v4/.
+
+        Timeout curto e 1 retry: a classificação roda na fila em background,
+        mas não pode pendurar por dez minutos (padrão do SDK) — a fila
+        precisa andar.
+        """
         self.client = OpenAI(
             api_key=api_key,
-            base_url="https://open.bigmodel.cn/api/paas/v4/"
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=max_retries,
         )
-        self.model = "glm-4"  # GLM-4.7 — incluso no seu pacote
+        self.model = model
 
     def classify(self, tweet_text: str) -> dict:
         """

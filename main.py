@@ -1,18 +1,27 @@
 """
 main.py — Entry point do monitor de promoções.
 Uso: python main.py
+
+O ciclo de polling (60s) só coleta: cada tweet novo é gravado no banco com
+tier P (pendente) e o webhook do classificador é disparado numa fila em
+processo — nem a IA nem o webhook atrasam o próximo ciclo. Pendentes sem
+resposta são re-disparados no ciclo seguinte (o receptor pode estar
+reiniciando). A notificação por Telegram fica com o agente classificador;
+notifier.py e classifier.py permanecem no repo como referência.
 """
 import logging
+import queue
+import threading
 import time
-from datetime import datetime
+from datetime import timedelta
 
 import schedule
 
 import config
-from classifier import Classifier
-from database import Database
-from notifier import TelegramNotifier
-from worker import RSSWorker
+import webhook
+from database import Database, Promocao
+from feed import ExportadorPromos
+from worker import RSSWorker, Tweet
 
 # ------------------------------------------------------------------
 # Logging
@@ -29,9 +38,12 @@ logger = logging.getLogger("main")
 # Inicialização dos componentes
 # ------------------------------------------------------------------
 db         = Database(config.DATABASE_URL)
-worker     = RSSWorker(config.PERFIS_MONITORADOS, config.NITTER_BASE)
-classifier = Classifier(api_key=config.ZAI_API_KEY)
-notifier   = TelegramNotifier(config.TELEGRAM_TOKEN, config.TELEGRAM_CHAT_ID)
+worker     = RSSWorker(
+    perfis=config.PERFIS_MONITORADOS,
+    instancias=config.NITTER_INSTANCES,
+    falhas_para_rotacionar=config.FALHAS_PARA_ROTACIONAR,
+)
+exportador = ExportadorPromos(config.PROMOS_JSON_PATH, limite=config.PROMOS_LIMITE)
 
 # Sincroniza hashes do banco no worker para não reprocessar ao reiniciar
 hashes_existentes = db.listar_hashes()
@@ -43,51 +55,81 @@ db.sincronizar_perfis(config.PERFIS_MONITORADOS)
 
 
 # ------------------------------------------------------------------
-# Ciclo principal
+# Fila de disparo do webhook — fora do ciclo de polling
 # ------------------------------------------------------------------
+fila: "queue.Queue[Promocao]" = queue.Queue()
+
+
+def processar_fila():
+    """
+    Thread consumidora: dispara o webhook de cada pendente. Lenta ou fora
+    do ar? O item continua pendente e o ciclo seguinte re-enfileira.
+    """
+    while True:
+        promocao = fila.get()
+        try:
+            if not config.PROMO_WEBHOOK_URL:
+                logger.debug("Webhook desligado (PROMO_WEBHOOK_URL vazio) — item segue pendente.")
+                continue
+
+            ok = webhook.disparar(
+                config.PROMO_WEBHOOK_URL,
+                config.PROMO_WEBHOOK_SECRET,
+                webhook.payload_do_tweet(promocao),
+            )
+            if ok:
+                db.marcar_webhook_disparado(promocao.id)
+                logger.info(f"Webhook disparado para {promocao.tweet_url} — aguardando classificação.")
+        except Exception as e:
+            logger.error(f"Falha ao disparar webhook para {promocao.tweet_url}: {e}")
+        finally:
+            fila.task_done()
+
+
 def ciclo():
+    """
+    Coleta + dispara + exporta. Tudo que pode demorar fica na fila; o
+    ciclo em si é rápido para a 'hora do post' não esperar ninguém.
+    """
     logger.debug("Iniciando ciclo de coleta...")
     novos = worker.fetch_new_tweets()
 
-    if not novos:
-        return
-
-    logger.info(f"{len(novos)} tweets novos — classificando...")
-
+    # 1. Grava cada tweet novo como PENDENTE e enfileira o disparo.
+    enfileirados = 0
     for tweet in novos:
-        # 1. Classifica com GLM-4.7
-        classificacao = classifier.classify(tweet.conteudo)
-
-        # 2. Persiste no banco
-        promocao = db.salvar_promocao(tweet, classificacao)
+        promocao = db.salvar_promocao_pendente(tweet)
         if not promocao:
             continue  # duplicata rara, ignora
+        fila.put(promocao)
+        enfileirados += 1
 
-        # 3. Notifica se tier relevante
-        if classificacao["tier"] in config.TIERS_NOTIFICAR:
-            enviado = notifier.send(promocao)
-            if enviado:
-                db.marcar_notificado(promocao.id)
+    # 2. Retentativa: pendentes sem resposta voltam para a fila.
+    pendentes = db.buscar_pendentes_webhook(tentar_novamente_apos=timedelta(seconds=config.INTERVALO_POLLING))
+    for promocao in pendentes:
+        fila.put(promocao)
 
+    # 3. Feed do site — sempre fresco a cada ciclo (pendentes aparecem
+    # como 'analisando…' e a classificação chega segundos depois).
+    exportador.exportar(db)
 
-def resumo_diario():
-    """Envia stats do dia no Telegram todo dia às 20h."""
-    stats = db.stats()
-    notifier.send_resumo_diario(stats)
-    logger.info(f"Resumo diário enviado: {stats}")
+    if enfileirados or pendentes:
+        logger.info(
+            f"Ciclo: {enfileirados} novo(s) enfileirado(s), {len(pendentes)} pendente(s) re-disparado(s) "
+            f"(fila: {fila.qsize()})."
+        )
 
 
 def limpeza_semanal():
     """Remove promoções com mais de 7 dias — executa toda segunda às 03h."""
     removidos = db.excluir_antigos(dias=7)
     logger.info(f"Limpeza semanal concluída: {removidos} registro(s) removido(s).")
+    exportador.exportar(db)
 
 
 # ------------------------------------------------------------------
 # Agendamento
 # ------------------------------------------------------------------
 schedule.every(config.INTERVALO_POLLING).seconds.do(ciclo)
-schedule.every().day.at("20:00").do(resumo_diario)
 schedule.every().monday.at("03:00").do(limpeza_semanal)
 
 
@@ -95,12 +137,17 @@ schedule.every().monday.at("03:00").do(limpeza_semanal)
 # Loop
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    logger.info("="*50)
+    logger.info("=" * 50)
     logger.info("Monitor de Promoções iniciado")
     logger.info(f"Perfis: {config.PERFIS_MONITORADOS}")
+    logger.info(f"Instâncias Nitter: {config.NITTER_INSTANCES}")
     logger.info(f"Intervalo: {config.INTERVALO_POLLING}s")
-    logger.info(f"Tiers notificados: {config.TIERS_NOTIFICAR}")
-    logger.info("="*50)
+    logger.info(f"Webhook do classificador: {config.PROMO_WEBHOOK_URL or '(desligado)'}")
+    logger.info(f"Feed do site: {config.PROMOS_JSON_PATH}")
+    logger.info("=" * 50)
+
+    # Thread consumidora da fila — daemon para morrer junto com o processo.
+    threading.Thread(target=processar_fila, name="disparador", daemon=True).start()
 
     # Executa um ciclo imediato antes de entrar no loop
     ciclo()

@@ -1,52 +1,131 @@
 """
-Teste do worker RSS — valida coleta e deduplicação sem precisar do banco.
-Uso: python test_worker.py
+Testes do worker RSS — coleta, parse e deduplicação com RSS mockado
+(httpx.MockTransport): determinístico, sem depender do Nitter estar no ar.
+O health check de instâncias segue sendo utilidade pública, testada via
+mock também.
+
+Antes um script main() que fazia fetch real e sys.exit(1) quando vinho
+vazio (PR de saúde): mesmas validações, agora em pytest.
 """
-import logging
-import sys
+import pytest
+
 from worker import RSSWorker
 
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
+RSS_PERFIL = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>@perfildeteste</title>
+    <item>
+      <title>BUG DE PREÇO! Notebook por R$0,01 na Kabum</title>
+      <link>https://x.com/perfildeteste/status/111</link>
+      <description>BUG DE PREÇO! Notebook por R$0,01 na Kabum</description>
+      <pubDate>Fri, 20 Nov 2026 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Cupom 10% OFF em tudo</title>
+      <link>https://x.com/perfildeteste/status/222</link>
+      <description>&lt;b&gt;Cupom&lt;/b&gt; PROMO10 dá 10% em tudo &lt;br/&gt; corre</description>
+      <pubDate>Fri, 20 Nov 2026 10:05:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>RT @outro: oferta</title>
+      <link>https://x.com/perfildeteste/status/333</link>
+      <description>RT @outro: oferta retuitada</description>
+      <pubDate>Fri, 20 Nov 2026 10:10:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
+"""
 
-PERFIS_TESTE = [
-    "@opromocionista",   # troque por perfis reais que você monitora
-]
 
-def main():
-    print("\n" + "="*60)
-    print("TESTANDO WORKER RSS")
-    print("="*60)
+def _transport(resposta_por_host: dict[str, object]):
+    """MockTransport que responde por host: {host: texto_ou_status}."""
+    import httpx
 
-    # Verifica quais instâncias do Nitter estão no ar
-    worker = RSSWorker(perfis=PERFIS_TESTE)
-    print("\n[1] Health check das instâncias Nitter:")
-    status = worker.health_check()
-    for url, ok in status.items():
-        print(f"  {'✅' if ok else '❌'} {url}")
+    def handler(request):
+        host = request.url.host
+        if host in resposta_por_host:
+            corpo = resposta_por_host[host]
+            if isinstance(corpo, int):
+                return httpx.Response(corpo)
+            return httpx.Response(200, text=corpo)
+        return httpx.Response(503)
 
-    # Busca tweets reais
-    print("\n[2] Buscando tweets...")
+    return httpx.MockTransport(handler)
+
+
+def _worker_com(rss: str, host: str = "nitter.test") -> RSSWorker:
+    import httpx
+
+    worker = RSSWorker(perfis=["@perfildeteste"], instancias=[f"https://{host}"])
+    worker._client.close()
+    worker._client = httpx.Client(
+        timeout=15,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; RSS reader)"},
+        follow_redirects=True,
+        transport=_transport({host: rss}),
+    )
+    return worker
+
+
+def test_fetch_coleta_tweets_e_ignora_retweets():
+    worker = _worker_com(RSS_PERFIL)
     tweets = worker.fetch_new_tweets()
 
-    if not tweets:
-        print("Nenhum tweet encontrado. Verifique se os perfis existem e o Nitter está acessível.")
-        sys.exit(1)
+    assert len(tweets) == 2  # o RT é descartado
+    textos = " | ".join(t.conteudo for t in tweets)
+    assert "BUG DE PREÇO" in textos
+    assert "PROMO10" in textos
+    # HTML do summary sai limpo.
+    assert "<b>" not in textos and "&lt;" not in textos
 
-    print(f"\n{len(tweets)} tweets encontrados:\n")
-    for t in tweets:
-        print(f"  @{t.perfil_origem} | {t.publicado_em.strftime('%d/%m %H:%M')}")
-        print(f"  {t.conteudo[:120]}...")
-        print(f"  Hash: {t.hash} | URL: {t.url}")
-        print()
 
-    # Testa deduplicação — segundo fetch não deve retornar nada
-    print("[3] Testando deduplicação (segundo fetch deve retornar 0 tweets)...")
-    duplicatas = worker.fetch_new_tweets()
-    assert len(duplicatas) == 0, f"Esperado 0, veio {len(duplicatas)}"
-    print("  ✅ Deduplicação funcionando corretamente\n")
+def test_deduplicacao_segundo_fetch_nao_traz_nada():
+    worker = _worker_com(RSS_PERFIL)
+    assert len(worker.fetch_new_tweets()) == 2
+    assert len(worker.fetch_new_tweets()) == 0
 
-    print("="*60)
-    print("Worker OK!")
 
-if __name__ == "__main__":
-    main()
+def test_urls_e_perfis_corretos():
+    worker = _worker_com(RSS_PERFIL)
+    tweets = worker.fetch_new_tweets()
+    assert all(t.url.startswith("https://x.com/") for t in tweets)
+    assert all(t.perfil_origem == "perfildeteste" for t in tweets)
+    assert all(len(t.hash) == 32 for t in tweets)  # MD5
+
+
+def test_hash_do_mesmo_conteudo_eh_igual():
+    worker = _worker_com(RSS_PERFIL)
+    t1, t2 = worker.fetch_new_tweets()
+    assert t1.hash != t2.hash  # conteúdos diferentes
+    assert worker._gerar_hash("promo") == worker._gerar_hash("promo")
+
+
+def test_sync_hashes_do_banco_evita_reprocessar():
+    worker = _worker_com(RSS_PERFIL)
+    tweets = worker.fetch_new_tweets()
+    worker2 = _worker_com(RSS_PERFIL)
+    worker2.sync_hashes_from_db([t.hash for t in tweets])
+    assert worker2.fetch_new_tweets() == []
+
+
+def test_falha_num_perfil_nao_para_os_demais(caplog):
+    worker = _worker_com(RSS_PERFIL)
+    worker.perfis = ["perfildeteste", "perfilmorto"]
+    # O perfil morto não está no mock → 503 → warning, o outro segue.
+    tweets = worker.fetch_new_tweets()
+    assert len(tweets) == 2
+
+
+def test_health_check_da_lista_configurada():
+    worker = _worker_com(RSS_PERFIL)
+    worker._client.close()
+    import httpx
+
+    worker._client = httpx.Client(
+        transport=_transport({"ok.test": 200, "fora.test": 503}),
+        follow_redirects=True,
+    )
+    worker.instancias = ["https://ok.test", "https://fora.test"]
+    status = worker.health_check()
+    assert status == {"https://ok.test": True, "https://fora.test": False}

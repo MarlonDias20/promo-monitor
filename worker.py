@@ -1,6 +1,6 @@
 import hashlib
 import logging
-import time
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -20,14 +20,39 @@ class Tweet:
     publicado_em: datetime
 
 
+@dataclass
+class EstadoInstancia:
+    """Saúde de uma instância do Nitter — alimenta a rotação automática."""
+
+    url: str
+    falhas_seguidas: int = 0
+    ultima_falha: Optional[datetime] = None
+    em_uso: bool = False
+
+
 class RSSWorker:
-    def __init__(self, perfis: list[str], nitter_base: str = "https://nitter.privacydev.net"):
+    def __init__(
+        self,
+        perfis: list[str],
+        nitter_base: str = "https://nitter.privacydev.net",
+        instancias: Optional[list[str]] = None,
+        falhas_para_rotacionar: int = 2,
+    ):
         """
         perfis: lista de @handles a monitorar, ex: ["@opromocionista", "@pelando"]
-        nitter_base: instância do Nitter a usar
+        nitter_base: retrocompatível — vira a primeira instância quando
+                     `instancias` não é passada.
+        instancias: lista completa de instâncias Nitter. Com mais de uma, o
+                    worker rotaciona automaticamente: a instância atual que
+                    acumula `falhas_para_rotacionar` falhas seguidas sai do
+                    uso até que uma saudável seja encontrada.
         """
         self.perfis = [p.lstrip("@") for p in perfis]
-        self.nitter_base = nitter_base.rstrip("/")
+        self.falhas_para_rotacionar = max(1, falhas_para_rotacionar)
+
+        lista = instancias or [nitter_base]
+        self.instancias = [u.rstrip("/") for u in lista]
+        self._estados = {url: EstadoInstancia(url=url) for url in self.instancias}
         self._hashes_vistos: set[str] = set()  # cache em memória entre ciclos
         self._client = httpx.Client(
             timeout=15,
@@ -43,12 +68,13 @@ class RSSWorker:
         """
         Itera todos os perfis configurados e retorna apenas tweets novos
         (não vistos desde que o worker iniciou e não existentes no banco).
+        Um perfil que falha em TODAS as instâncias não para os demais.
         """
         novos: list[Tweet] = []
 
         for perfil in self.perfis:
             try:
-                tweets = self._fetch_perfil(perfil)
+                tweets = self._fetch_perfil_com_fallback(perfil)
                 for tweet in tweets:
                     if tweet.hash not in self._hashes_vistos:
                         self._hashes_vistos.add(tweet.hash)
@@ -71,16 +97,10 @@ class RSSWorker:
 
     def health_check(self) -> dict:
         """
-        Verifica quais instâncias do Nitter estão respondendo.
-        Útil para trocar de instância automaticamente no futuro.
+        Verifica quais instâncias configuradas estão respondendo.
         """
-        instancias = [
-            "https://nitter.privacydev.net",
-            "https://nitter.net",
-            "https://nitter.1d4.us",
-        ]
         resultado = {}
-        for url in instancias:
+        for url in self.instancias:
             try:
                 r = self._client.get(url, timeout=5)
                 resultado[url] = r.status_code == 200
@@ -88,13 +108,60 @@ class RSSWorker:
                 resultado[url] = False
         return resultado
 
+    def _instancias_saudaveis(self) -> list[str]:
+        """Ordem de preferência: saudáveis primeiro, a atual na frente."""
+        ordenadas = sorted(
+            self.instancias,
+            key=lambda url: (self._estados[url].falhas_seguidas >= self.falhas_para_rotacionar, url != self._instancia_atual()),
+        )
+        return ordenadas
+
+    def _instancia_atual(self) -> str:
+        atuais = [url for url in self.instancias if self._estados[url].em_uso]
+        return atuais[0] if atuais else self.instancias[0]
+
+    def _registrar_falha(self, url: str):
+        estado = self._estados[url]
+        estado.falhas_seguidas += 1
+        estado.ultima_falha = datetime.utcnow()
+        if estado.falhas_seguidas >= self.falhas_para_rotacionar and estado.em_uso:
+            estado.em_uso = False
+            logger.warning(
+                f"Instância {url} acumulou {estado.falhas_seguidas} falhas seguidas — rotacionando."
+            )
+
+    def _registrar_sucesso(self, url: str):
+        estado = self._estados[url]
+        estado.falhas_seguidas = 0
+        estado.em_uso = True
+
     # ------------------------------------------------------------------
     # Privado
     # ------------------------------------------------------------------
 
-    def _fetch_perfil(self, perfil: str) -> list[Tweet]:
-        """Baixa e parseia o RSS de um perfil."""
-        feed_url = f"{self.nitter_base}/{perfil}/rss"
+    def _fetch_perfil_com_fallback(self, perfil: str) -> list[Tweet]:
+        """
+        Tenta as instâncias em ordem de saúde. A falha de uma instância
+        (rede, 5xx, RSS inválido) registra no contador de rotação; quando a
+        atual quebra `falhas_para_rotacionar` vezes seguidas, as próximas
+        chamadas já começam pela próxima saudável.
+        """
+        ultimo_erro: Optional[Exception] = None
+        for url in self._instancias_saudaveis():
+            try:
+                tweets = self._fetch_perfil(perfil, url)
+                self._registrar_sucesso(url)
+                return tweets
+            except Exception as e:
+                self._registrar_falha(url)
+                ultimo_erro = e
+                logger.warning(f"Instância {url} falhou para @{perfil}: {e}")
+
+        raise ultimo_erro or RuntimeError("Nenhuma instância do Nitter disponível")
+
+    def _fetch_perfil(self, perfil: str, nitter_base: Optional[str] = None) -> list[Tweet]:
+        """Baixa e parseia o RSS de um perfil numa instância específica."""
+        feed_url = f"{nitter_base or self._instancia_atual()}/{perfil}/rss"
         response = self._client.get(feed_url)
         response.raise_for_status()
 
@@ -145,7 +212,6 @@ class RSSWorker:
         texto = entry.get("summary", "") or entry.get("title", "")
 
         # Remove tags HTML básicas
-        import re
         texto = re.sub(r"<[^>]+>", " ", texto)
         texto = re.sub(r"\s+", " ", texto).strip()
 
