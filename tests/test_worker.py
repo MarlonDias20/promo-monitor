@@ -129,3 +129,54 @@ def test_health_check_da_lista_configurada():
     worker.instancias = ["https://ok.test", "https://fora.test"]
     status = worker.health_check()
     assert status == {"https://ok.test": True, "https://fora.test": False}
+
+
+# ------------------------------------------------------------------
+# Filtro de idade na ingestão (tempo real): tweet velho não entra,
+# marca como visto e não volta; sem data passa; 0 desliga.
+# ------------------------------------------------------------------
+
+def _tweet_idade(horas: float):
+    from datetime import datetime, timedelta
+    from worker import Tweet
+
+    return Tweet(
+        hash=f"h-{horas}",
+        url=f"https://x.com/p/status/{horas}",
+        conteudo="promo",
+        perfil_origem="p",
+        publicado_em=datetime.utcnow() - timedelta(hours=horas),
+    )
+
+
+def test_tweet_velho_descartado_e_nao_volta(monkeypatch):
+    worker = RSSWorker(perfis=["p"], idade_maxima_horas=48)
+    monkeypatch.setattr(
+        worker, "_fetch_perfil_com_fallback", lambda perfil: [_tweet_idade(10 * 24), _tweet_idade(0.5)]
+    )
+
+    tweets = worker.fetch_new_tweets()
+    assert [t.hash for t in tweets] == ["h-0.5"]
+    # Descartado marca como visto: o próximo ciclo não reavalia.
+    assert worker.fetch_new_tweets() == []
+
+
+def test_tweet_sem_data_passa(monkeypatch):
+    worker = RSSWorker(perfis=["p"], idade_maxima_horas=48)
+    from worker import Tweet
+
+    sem_data = Tweet(hash="h-sem-data", url="u", conteudo="c", perfil_origem="p", publicado_em=None)
+    monkeypatch.setattr(worker, "_fetch_perfil_com_fallback", lambda perfil: [sem_data])
+    assert [t.hash for t in worker.fetch_new_tweets()] == ["h-sem-data"]
+
+
+def test_limite_zero_desliga_o_filtro(monkeypatch):
+    worker = RSSWorker(perfis=["p"], idade_maxima_horas=0)
+    monkeypatch.setattr(worker, "_fetch_perfil_com_fallback", lambda perfil: [_tweet_idade(10 * 24)])
+    assert len(worker.fetch_new_tweets()) == 1
+
+
+def test_limite_apertado_descarta_recente(monkeypatch):
+    worker = RSSWorker(perfis=["p"], idade_maxima_horas=1)
+    monkeypatch.setattr(worker, "_fetch_perfil_com_fallback", lambda perfil: [_tweet_idade(3)])
+    assert worker.fetch_new_tweets() == []

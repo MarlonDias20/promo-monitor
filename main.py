@@ -42,6 +42,7 @@ worker     = RSSWorker(
     perfis=config.PERFIS_MONITORADOS,
     instancias=config.NITTER_INSTANCES,
     falhas_para_rotacionar=config.FALHAS_PARA_ROTACIONAR,
+    idade_maxima_horas=config.IDADE_MAXIMA_INGESTAO_HORAS,
 )
 exportador = ExportadorPromos(config.PROMOS_JSON_PATH, limite=config.PROMOS_LIMITE)
 
