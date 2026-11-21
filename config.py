@@ -90,6 +90,12 @@ ZAI_MODEL = os.getenv("ZAI_MODEL", "glm-4")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")  # seu chat ID pessoal
 
+# WhatsApp Cloud API (Meta Graph) — valores do painel da Meta, nunca hardcode.
+# O destinatário precisa ter aberto a janela de 24 h (mandar um 'oi' pro número).
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+WA_DESTINO = os.getenv("WA_DESTINO", "")  # ex.: 5521999999999
+
 # Tiers que geram notificação imediata
 TIERS_NOTIFICAR = {"S", "A"}
 
