@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Promoções de perfis de achados do X, classificadas por tier, urgência e categoria. Sem cadastro, atualizado sozinho.">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+<title>Promoções Monitor — achados de promoção triados por urgência</title>
+<style>
+  :root {
+    --fundo: #f8fafc; --superficie: #ffffff; --texto: #0f172a;
+    --texto-suave: #475569; --borda: #e2e8f0; --link: #1d4ed8;
+    --s-badge: #b91c1c; --s-texto: #ffffff; --s-fundo: #fef2f2; --s-borda: #dc2626;
+    --a-badge: #b45309; --a-texto: #ffffff; --a-fundo: #fffbeb; --a-borda: #d97706;
+    --b-badge: #475569; --b-texto: #ffffff; --b-fundo: #f1f5f9; --b-borda: #94a3b8;
+    --n-badge: #e2e8f0; --n-texto: #475569; --n-borda: #cbd5e1;
+    --p-badge: #94a3b8; --p-texto: #ffffff; --p-fundo: #f8fafc; --p-borda: #94a3b8;
+    --sombra: 0 1px 3px rgb(15 23 42 / .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #0f172a; --superficie: #1e293b; --texto: #e2e8f0;
+      --texto-suave: #94a3b8; --borda: #334155; --link: #93c5fd;
+      --s-badge: #450a0a; --s-texto: #fca5a5; --s-fundo: #1e1216; --s-borda: #ef4444;
+      --a-badge: #451a03; --a-texto: #fcd34d; --a-fundo: #1f1a10; --a-borda: #f59e0b;
+      --b-badge: #334155; --b-texto: #cbd5e1; --b-fundo: #172033; --b-borda: #64748b;
+      --n-badge: #1e293b; --n-texto: #94a3b8; --n-borda: #334155;
+      --p-badge: #334155; --p-texto: #cbd5e1; --p-fundo: #141b29; --p-borda: #64748b;
+      --sombra: 0 1px 3px rgb(0 0 0 / .4);
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--fundo); }
+  body {
+    margin: 0; background: var(--fundo); color: var(--texto);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 0 16px env(safe-area-inset-bottom);
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 0 48px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -.3px; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  #subtitulo { color: var(--texto-suave); font-size: 14px; margin: 0 0 6px; }
+  #atualizado { color: var(--texto-suave); font-size: 12px; margin: 0; font-variant-numeric: tabular-nums; }
+  #atualizado a { color: inherit; }
+  details { margin: 10px 0 0; font-size: 14px; }
+  details summary { cursor: pointer; color: var(--texto-suave); font-weight: 600; }
+  details dl { margin: 8px 0 0; display: grid; gap: 6px; }
+  details dt { font-weight: 600; }
+  details dd { margin: 0; color: var(--texto-suave); }
+  details div { display: grid; grid-template-columns: 92px 1fr; gap: 8px; }
+
+  .toolbar {
+    position: sticky; top: 0; z-index: 5; background: var(--superficie);
+    border-bottom: 1px solid var(--borda); margin: 16px -16px 0; padding: 10px 16px 8px;
+  }
+  #busca {
+    width: 100%; padding: 10px 12px; font-size: 16px; color: var(--texto);
+    background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; outline: none;
+  }
+  .chips { display: flex; gap: 8px; margin: 10px 0; overflow-x: auto; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; padding: 7px 14px; font-size: 14px; font-weight: 600;
+    background: var(--superficie); color: var(--texto-suave);
+    border: 1px solid var(--borda); border-radius: 999px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--texto); color: var(--superficie); border-color: var(--texto); }
+  .chip[data-filtro="s"][aria-pressed="true"] { background: var(--s-badge); color: var(--s-texto); border-color: var(--s-borda); }
+  .chip[data-filtro="a"][aria-pressed="true"] { background: var(--a-badge); color: var(--a-texto); border-color: var(--a-borda); }
+  .chip[data-filtro="b"][aria-pressed="true"] { background: var(--b-badge); color: var(--b-texto); border-color: var(--b-borda); }
+  .chip[data-filtro="n"][aria-pressed="true"] { background: var(--n-badge); color: var(--n-texto); border-color: var(--n-borda); }
+  .linhas { display: flex; gap: 8px; flex-wrap: wrap; }
+  select {
+    flex: 1 1 130px; min-width: 0; padding: 8px 10px; font-size: 14px; color: var(--texto);
+    background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px;
+  }
+  #contagem { font-size: 13px; color: var(--texto-suave); margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+
+  #lista { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 16px; }
+  @media (min-width: 768px)  { #lista { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 1200px) { #lista { grid-template-columns: repeat(3, 1fr); } }
+
+  .promo {
+    background: var(--superficie); border: 1px solid var(--borda);
+    border-left: 3px solid var(--borda); border-radius: 10px; padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 8px; height: 100%;
+  }
+  .promo.t-s { border-color: var(--s-borda); border-left: 3px solid var(--s-borda); background: var(--s-fundo); box-shadow: var(--sombra); }
+  .promo.t-a { border-left: 3px solid var(--a-borda); background: var(--a-fundo); }
+  .promo.t-b { border-left: 3px solid var(--b-borda); }
+  .promo.t-n { border-left: 3px solid var(--n-borda); opacity: .7; }
+  .promo.t-p { border-left: 3px solid var(--p-borda); background: var(--p-fundo); }
+
+  .topo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 8px;
+    background: var(--b-badge, #999); color: var(--b-texto, #fff); border: none;
+  }
+  .t-s .badge { background: var(--s-badge); color: var(--s-texto); }
+  .t-a .badge { background: var(--a-badge); color: var(--a-texto); }
+  .t-b .badge { background: var(--b-badge); color: var(--b-texto); }
+  .t-n .badge { background: var(--n-badge); color: var(--n-texto); }
+  .t-p .badge { background: var(--p-badge); color: var(--p-texto); }
+  .urgencia { font-size: 12px; font-weight: 600; color: var(--texto-suave); }
+  .analisando { font-size: 12px; font-style: italic; color: var(--texto-suave); }
+
+  h3 { font-size: 17px; font-weight: 600; margin: 0; }
+  .loja {
+    font-size: 12px; font-weight: 600; width: fit-content;
+    background: var(--fundo); border: 1px solid var(--borda); border-radius: 999px; padding: 2px 8px;
+  }
+  .precos { font-size: 14px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+  .precos .original { color: var(--texto-suave); text-decoration: line-through; }
+  .precos .promocional { font-size: 17.5px; font-weight: 600; }
+  .selo-desconto {
+    font-size: 12px; font-weight: 600; background: var(--a-badge); color: var(--a-texto);
+    border-radius: 999px; padding: 2px 8px;
+  }
+  .motivo { margin: 0; font-size: 14px; font-style: italic; color: var(--texto-suave); }
+  .tweet { position: relative; }
+  .tweet p { margin: 0; font-size: 14px; color: var(--texto-suave); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .tweet.aberto p { display: block; overflow: visible; }
+  .tweet button {
+    all: unset; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--link); margin-top: 4px;
+  }
+  .rodape-card { margin-top: auto; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--texto-suave); }
+  .rodape-card a { color: var(--link); font-weight: 600; text-decoration: none; }
+
+  .estado { text-align: center; color: var(--texto-suave); font-size: 15px; padding: 32px 8px; }
+  .estado[role="alert"] { color: var(--texto); }
+  .estado button {
+    margin-top: 10px; padding: 8px 16px; font-size: 14px; font-weight: 600;
+    background: var(--texto); color: var(--superficie); border: none; border-radius: 8px; cursor: pointer;
+  }
+  .skel { height: 148px; border-radius: 10px; background: var(--superficie); border: 1px solid var(--borda); animation: pulso 1.2s infinite; }
+  @keyframes pulso { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } * { transition: none !important; } }
+
+  footer { margin-top: 28px; text-align: center; font-size: 12.5px; color: var(--texto-suave); display: grid; gap: 4px; }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Promoções Monitor</h1>
+    <p id="subtitulo">Promoções publicadas por perfis de achados no X, triadas por qualidade e urgência.</p>
+    <p id="atualizado" title="Quando o monitor gerou esta lista.">Carregando…</p>
+    <details>
+      <summary>O que significam os tiers?</summary>
+      <dl>
+        <div><dt>S · bug de preço</dt><dd>Bug de preço, produto gratuito ou desconto absurdo (70% ou mais). Janela de minutos — vale correr.</dd></div>
+        <div><dt>A · muito boa</dt><dd>Desconto significativo (40 a 70%), oferta relâmpago ou frete grátis combinado com bom desconto.</dd></div>
+        <div><dt>B · comum</dt><dd>Cupom comum, desconto pequeno (abaixo de 40%) ou promoção recorrente, sem urgência.</dd></div>
+        <div><dt>N · não é promoção</dt><dd>Não é promoção: post informativo, meme ou notícia sem oferta.</dd></div>
+      </dl>
+    </details>
+  </header>
+
+  <div class="toolbar">
+    <input id="busca" type="search" placeholder="Buscar produto, loja ou cupom…" aria-label="Buscar promoções" autocomplete="off">
+    <div class="chips" role="group" aria-label="Filtrar por tier">
+      <button class="chip" data-filtro="promocoes" aria-pressed="true">Promoções</button>
+      <button class="chip" data-filtro="s" aria-pressed="false">S</button>
+      <button class="chip" data-filtro="a" aria-pressed="false">A</button>
+      <button class="chip" data-filtro="b" aria-pressed="false">B</button>
+      <button class="chip" data-filtro="n" aria-pressed="false">N</button>
+    </div>
+    <div class="linhas">
+      <select id="categoria" aria-label="Categoria"><option value="">Categoria — todas as categorias</option></select>
+      <select id="perfil" aria-label="Perfil"><option value="">Perfil — todos os perfis</option></select>
+      <select id="ordenar" aria-label="Ordenar">
+        <option value="recentes">Ordenar — mais recentes</option>
+        <option value="urgencia">Maior urgência</option>
+        <option value="desconto">Maior desconto</option>
+      </select>
+    </div>
+    <p id="contagem" aria-live="polite"></p>
+  </div>
+
+  <ul id="lista" aria-label="Lista de promoções"></ul>
+
+  <footer>
+    <p>Dados coletados de perfis públicos do X. Sem cadastro, sem cookies.</p>
+    <p>Promoções expiram rápido — confira sempre no tweet antes de comprar.</p>
+    <p>A lista cobre os últimos 7 dias.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* Promoções Monitor — página estática: lê promos.json (mesma pasta), filtra
+   no navegador e se atualiza a cada 60 s. Sem framework, sem cookies.
+
+   SEGURANÇA: tudo que vem do feed (produto, loja, motivo, conteudo) é
+   criado com createElement/textContent — nada de string vira marcação
+   interpretável pelo navegador. */
+
+const REFRESH_MS = 60_000;
+const BADGES = { S: "S · bug de preço", A: "A · muito boa", B: "B · comum", N: "N · não é promoção", P: "P · analisando…" };
+const CATEGORIAS_EMOJI = {
+  "Eletrônicos": "📺", "Smartphones": "📱", "Informática": "💻", "Games": "🎮",
+  "Eletrodomésticos": "🧺", "Moda e Vestuário": "👕", "Beleza e Perfumaria": "💅",
+  "Saúde e Bem-estar": "💊", "Alimentos e Bebidas": "🛒", "Livros e Cursos": "📚",
+  "Casa e Decoração": "🛋️", "Brinquedos": "🧸", "Esporte e Lazer": "⚽",
+  "Serviços e Assinaturas": "💳", "Viagens": "✈️", "Outros": "📦",
+};
+
+const estado = { filtro: "promocoes", categoria: "", perfil: "", busca: "", ordenar: "recentes" };
+let promocoes = [];
+
+const el = (id) => document.getElementById(id);
+const texto = (pai, valor) => { const t = document.createTextNode(String(valor)); pai.appendChild(t); return t; };
+
+function fmtRelativa(iso) {
+  if (!iso) return null;
+  const data = new Date(iso);
+  if (isNaN(data)) return null;
+  const seg = Math.max(0, (Date.now() - data.getTime()) / 1000);
+  if (seg < 60) return "agora";
+  if (seg < 3600) return `há ${Math.floor(seg / 60)} min`;
+  if (seg < 86400) return `há ${Math.floor(seg / 3600)} h`;
+  return `há ${Math.floor(seg / 86400)} d`;
+}
+
+function fmtAbsoluta(iso) {
+  if (!iso) return "";
+  const data = new Date(iso);
+  if (isNaN(data)) return "";
+  const fmt = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return fmt.format(data).replace(",", " às");
+}
+
+/* ---------- card (DOM puro: createElement + textContent) ---------- */
+
+function no(tag, classes) {
+  const n = document.createElement(tag);
+  if (classes) n.className = classes;
+  return n;
+}
+
+function card(p) {
+  const li = no("li");
+  const artigo = no("article", "promo t-" + String(p.tier || "n").toLowerCase());
+  li.appendChild(artigo);
+
+  // 1. badge + urgência / analisando
+  const topo = no("div", "topo");
+  const badge = no("span", "badge");
+  texto(badge, BADGES[p.tier] || String(p.tier));
+  topo.appendChild(badge);
+  if (p.tier === "P") {
+    const analisando = no("span", "analisando");
+    texto(analisando, "analisando…");
+    topo.appendChild(analisando);
+  } else if (p.urgencia != null) {
+    const urg = no("span", "urgencia");
+    urg.title = "Nível de urgência estimado pelo classificador (1 a 10).";
+    texto(urg, "⚡ " + p.urgencia + "/10");
+    topo.appendChild(urg);
+  }
+  artigo.appendChild(topo);
+
+  // 2. produto (fallback loja → "Oferta de @{perfil}")
+  const titulo = no("h3");
+  texto(titulo, p.produto || p.loja || ("Oferta de @" + (p.perfil_origem || "perfil")));
+  artigo.appendChild(titulo);
+
+  // 3. loja (chip) — só quando há produto pra não repetir o título
+  if (p.loja && p.produto) {
+    const loja = no("span", "loja");
+    loja.setAttribute("aria-label", "Loja");
+    texto(loja, "🏷️ " + p.loja);
+    artigo.appendChild(loja);
+  }
+
+  // 4. preços e desconto
+  const precos = no("div", "precos");
+  if (p.preco_original && p.preco_promocional) {
+    const original = no("span", "original");
+    const textoPreco = no("span");
+    texto(textoPreco, "De ");
+    const riscado = no("s");
+    texto(riscado, p.preco_original);
+    textoPreco.appendChild(riscado);
+    texto(textoPreco, " por ");
+    original.appendChild(textoPreco);
+    precos.appendChild(original);
+    const promocional = no("span", "promocional");
+    texto(promocional, p.preco_promocional);
+    precos.appendChild(promocional);
+  } else if (p.preco_promocional) {
+    const promocional = no("span", "promocional");
+    texto(promocional, p.preco_promocional);
+    precos.appendChild(promocional);
+  }
+  if (p.desconto_estimado != null) {
+    const selo = no("span", "selo-desconto");
+    selo.title = "Desconto estimado pelo classificador.";
+    texto(selo, "-" + Math.round(p.desconto_estimado) + "%");
+    precos.appendChild(selo);
+  }
+  if (precos.childNodes.length) artigo.appendChild(precos);
+
+  // 5. motivo
+  if (p.motivo) {
+    const motivo = no("p", "motivo");
+    texto(motivo, p.motivo);
+    artigo.appendChild(motivo);
+  }
+
+  // 6. tweet recolhido em 3 linhas — sempre texto, nunca HTML
+  if (p.conteudo) {
+    const tweet = no("div", "tweet");
+    const paragrafo = no("p");
+    texto(paragrafo, p.conteudo);
+    tweet.appendChild(paragrafo);
+    const botao = no("button");
+    texto(botao, "Mostrar tweet");
+    botao.addEventListener("click", () => {
+      const aberto = tweet.classList.toggle("aberto");
+      botao.textContent = aberto ? "Ocultar" : "Mostrar tweet";
+      botao.setAttribute("aria-expanded", aberto ? "true" : "false");
+    });
+    // O botão só aparece quando passa de 3 linhas (medido após layout).
+    requestAnimationFrame(() => {
+      if (paragrafo.scrollHeight > paragrafo.clientHeight + 1) {
+        tweet.appendChild(botao);
+      }
+    });
+    artigo.appendChild(tweet);
+  }
+
+  // 7. rodapé: perfil · tempo + ver tweet
+  const rodape = no("div", "rodape-card");
+  const por = no("span");
+  texto(por, "por @" + (p.perfil_origem || ""));
+  const rel = fmtRelativa(p.publicado_em) || fmtRelativa(p.criado_em);
+  if (rel) texto(por, " · " + rel);
+  rodape.appendChild(por);
+  const link = no("a");
+  link.href = p.tweet_url || "#";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.setAttribute("aria-label", "Ver o tweet de @" + (p.perfil_origem || "") + " (abre em nova aba)");
+  texto(link, "Ver tweet");
+  rodape.appendChild(link);
+  artigo.appendChild(rodape);
+
+  return li;
+}
+
+/* ---------- filtros e render ---------- */
+
+function aceita(p) {
+  if (estado.filtro === "promocoes" && !["S", "A", "B"].includes(p.tier)) return false;
+  if (["s", "a", "b", "n"].includes(estado.filtro) && p.tier !== estado.filtro.toUpperCase()) return false;
+  if (estado.categoria && p.categoria !== estado.categoria) return false;
+  if (estado.perfil && p.perfil_origem !== estado.perfil) return false;
+  const t = estado.busca.trim().toLowerCase();
+  if (t) {
+    const alvo = ((p.produto || "") + " " + (p.loja || "") + " " + (p.conteudo || "")).toLowerCase();
+    if (!alvo.includes(t)) return false;
+  }
+  return true;
+}
+
+function ordena(lista) {
+  const copia = lista.slice();
+  if (estado.ordenar === "urgencia") copia.sort((a, b) => (b.urgencia || 0) - (a.urgencia || 0));
+  else if (estado.ordenar === "desconto") copia.sort((a, b) => (b.desconto_estimado || 0) - (a.desconto_estimado || 0));
+  else copia.sort((a, b) => new Date(b.publicado_em || b.criado_em || 0) - new Date(a.publicado_em || a.criado_em || 0));
+  return copia;
+}
+
+function render() {
+  const lista = el("lista");
+  lista.replaceChildren();
+
+  if (!promocoes.length) {
+    const vazio = no("li", "estado");
+    texto(vazio, "Sem promoções no momento. O monitor atualiza sozinho — volte mais tarde.");
+    lista.appendChild(vazio);
+    el("contagem").textContent = "";
+    return;
+  }
+
+  const visiveis = ordena(promocoes.filter(aceita));
+  if (!visiveis.length) {
+    const vazio = no("li", "estado");
+    texto(vazio, "Nenhuma promoção com esses filtros.");
+    lista.appendChild(vazio);
+  } else {
+    for (const p of visiveis) lista.appendChild(card(p));
+  }
+
+  el("contagem").textContent = visiveis.length === promocoes.length
+    ? "Mostrando " + promocoes.length + " de " + promocoes.length + " promoções."
+    : "Mostrando " + visiveis.length + " de " + promocoes.length + " promoções.";
+}
+
+function carregando() {
+  const lista = el("lista");
+  lista.replaceChildren();
+  for (let i = 0; i < 3; i++) {
+    const s = no("li");
+    s.setAttribute("aria-hidden", "true");
+    const skel = no("div", "skel");
+    s.appendChild(skel);
+    lista.appendChild(s);
+  }
+  el("contagem").textContent = "Carregando promoções…";
+}
+
+function popularSelects() {
+  const cats = [...new Set(promocoes.map((p) => p.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt"));
+  const perfs = [...new Set(promocoes.map((p) => p.perfil_origem).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt"));
+  const comEmoji = (c) => (CATEGORIAS_EMOJI[c] || "") + " " + c;
+
+  for (const [select, valores, primeira, formatador] of [
+    [el("categoria"), cats, "Categoria — todas as categorias", comEmoji],
+    [el("perfil"), perfs, "Perfil — todos os perfis", (v) => "@" + v],
+  ]) {
+    const atual = select.value;
+    select.replaceChildren(new Option(primeira, ""));
+    for (const v of valores) select.add(new Option(formatador(v), v));
+    if ([...select.options].some((o) => o.value === atual)) select.value = atual;
+  }
+}
+
+/* ---------- fetch ---------- */
+
+async function carregar(primeiraCarga = false) {
+  if (primeiraCarga) carregando();
+  try {
+    const r = await fetch("promos.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const dados = await r.json();
+    promocoes = dados.promocoes || [];
+    popularSelects();
+    render();
+    if (dados.gerado_em) {
+      el("atualizado").textContent = "Atualizado em " + fmtAbsoluta(dados.gerado_em);
+    }
+  } catch (e) {
+    const lista = el("lista");
+    lista.replaceChildren();
+    const erro = no("li", "estado");
+    erro.setAttribute("role", "alert");
+    texto(erro, "Não foi possível carregar as promoções agora.");
+    const botao = no("button");
+    texto(botao, "Tentar de novo");
+    botao.addEventListener("click", () => carregar(true));
+    erro.appendChild(botao);
+    lista.appendChild(erro);
+    el("contagem").textContent = "";
+  }
+}
+
+/* ---------- eventos ---------- */
+for (const chip of document.querySelectorAll(".chip")) {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
+    chip.setAttribute("aria-pressed", "true");
+    estado.filtro = chip.dataset.filtro;
+    render();
+  });
+}
+el("busca").addEventListener("input", (e) => { estado.busca = e.target.value; render(); });
+el("categoria").addEventListener("change", (e) => { estado.categoria = e.target.value; render(); });
+el("perfil").addEventListener("change", (e) => { estado.perfil = e.target.value; render(); });
+el("ordenar").addEventListener("change", (e) => { estado.ordenar = e.target.value; render(); });
+
+setInterval(() => { if (document.visibilityState === "visible") carregar(); }, REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") carregar();
+});
+
+carregar(true);
+</script>
+</body>
+</html>

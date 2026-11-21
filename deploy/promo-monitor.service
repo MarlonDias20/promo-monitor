@@ -1,0 +1,24 @@
+# promo-monitor.service — unidade systemd simples.
+# Instale em /etc/systemd/system/promo-monitor.service e:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now promo-monitor
+# Caminhos: ajuste User/Homedir para quem roda (aqui: o usuário do OpenBot).
+
+[Unit]
+Description=Promo Monitor — monitor de promoções (RSS + GLM + Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Ajuste para o usuário e a pasta do deploy:
+User=openbot
+WorkingDirectory=/data/OpenBot/Agents/agent-ad8669a4-4ad4-4277-aeef-a9980781d719/promo-monitor
+ExecStart=/data/OpenBot/Agents/agent-ad8669a4-4ad4-4277-aeef-a9980781d719/promo-monitor/run.sh
+Restart=always
+RestartSec=15
+# O .env é lido pelo python-dotenv a partir do WorkingDirectory.
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
