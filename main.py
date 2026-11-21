@@ -72,14 +72,21 @@ def processar_fila():
                 logger.debug("Webhook desligado (PROMO_WEBHOOK_URL vazio) — item segue pendente.")
                 continue
 
-            ok = webhook.disparar(
+            resultado = webhook.disparar(
                 config.PROMO_WEBHOOK_URL,
                 config.PROMO_WEBHOOK_SECRET,
                 webhook.payload_do_tweet(promocao),
+                # O hash do tweet é o delivery ID: idempotente por natureza.
+                delivery_id=promocao.tweet_hash,
             )
-            if ok:
+            if resultado is webhook.ResultadoDisparo.ACEITO:
                 db.marcar_webhook_disparado(promocao.id)
-                logger.info(f"Webhook disparado para {promocao.tweet_url} — aguardando classificação.")
+                logger.info(f"Webhook aceitou {promocao.tweet_url} — aguardando classificação.")
+            elif resultado is webhook.ResultadoDisparo.DESCARTAR:
+                # Corpo inválido: sem re-tentativa — sai da fila também.
+                db.marcar_webhook_disparado(promocao.id)
+                logger.error(f"Webhook descartou {promocao.tweet_url} (corpo inválido).")
+            # RETENTAR: nada a marcar — o próximo ciclo re-dispara.
         except Exception as e:
             logger.error(f"Falha ao disparar webhook para {promocao.tweet_url}: {e}")
         finally:

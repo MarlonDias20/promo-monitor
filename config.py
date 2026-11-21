@@ -54,7 +54,9 @@ if _nitter_base and _nitter_base not in NITTER_INSTANCES:
 FALHAS_PARA_ROTACIONAR = int(os.getenv("FALHAS_PARA_ROTACIONAR", "2"))
 
 # ------------------------------------------------------------------
-# Webhook do classificador — um agente OpenBot acordado por POST
+# Webhook do classificador — um agente OpenBot acordado por POST assinado
+# (x-openbot-signature HMAC-SHA256; delivery ID = hash do tweet). O segredo
+# é gerado pelo Marlon nas configurações da rotina e chega por env.
 # ------------------------------------------------------------------
 PROMO_WEBHOOK_URL = os.getenv("PROMO_WEBHOOK_URL", "")
 PROMO_WEBHOOK_SECRET = os.getenv("PROMO_WEBHOOK_SECRET", "")
