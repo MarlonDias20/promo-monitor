@@ -79,7 +79,11 @@ def test_texto_e_plano_com_emojis_e_espelha_o_notifier():
     assert "R$ 3.999" in texto and "R$ 0,01" in texto
     assert "🔴" in texto
     assert "Bug de preço absurdo" in texto
-    assert "https://x.com/x/status/h1" in texto
+    # Momento do tweet (fuso de Brasília) próximo do link — o helper cria
+    # o tweet AGORA, então casamos o padrão (agora/há Xmin/h/d), sem fixar data.
+    import re
+    assert re.search(r"📅 \d{2}/\d{2}, \d{2}h\d{2} \((?:agora|há \d+(?:min|h|d))\)", texto)
+    assert texto.index("📅") < texto.index("https://x.com/x/status/h1")
     assert "@perfil" in texto
     # Texto plano: sem markdown do Telegram.
     assert "*" not in texto and "_(" not in texto
@@ -96,6 +100,17 @@ def test_campos_ausentes_nao_viram_placeholder():
     # Link e perfil sempre; o ⚡ do cabeçalho do tier A segue — é do tier.
     assert "https://x.com/x/status/h1" in texto and "@perfil" in texto
     assert texto.startswith("⚡ OFERTA RELÂMPAGO")
+
+    # Sem publicado_em: a linha do momento também não aparece.
+    from datetime import datetime as _dt
+    promocao.publicado_em = None
+    texto = formatar(promocao)
+    assert "📅" not in texto
+    # E com data volta a aparecer (mesma promoção, só o campo preenchido).
+    promocao.publicado_em = _dt(2026, 11, 20, 23, 0)
+    assert "📅 20/11, 20h00 (" in formatar(promocao)
+    # Texto plano: sem o escape de MarkdownV2 do Telegram.
+    assert "\\(há" not in formatar(promocao)
 
 
 def test_erro_401_nao_explode_e_retorna_false():

@@ -100,3 +100,23 @@ def test_filtros_e_ordenacao_da_spec_existem():
     conteudo = _pagina()
     for trecho in ('data-filtro="promocoes"', 'id="categoria"', 'id="perfil"', 'id="ordenar"', 'aria-pressed'):
         assert trecho in conteudo
+
+
+def test_momento_do_tweet_e_uma_funcao_so_e_omite_sem_data():
+    """
+    O card mostra '20/11 às 23h21 · há 3h' (fuso de Brasília). A lógica vive
+    em UMA função (momentoTweet) — sem publicado_em, a linha é omitida
+    (if momento) em vez de placeholder. O espelho Python é a tempo.py,
+    testada em test_tempo.
+    """
+    conteudo = _pagina()
+    # Uma definição só da função; a antiga fmtRelativa saiu.
+    assert conteudo.count("function momentoTweet(") == 1
+    assert "fmtRelativa" not in conteudo
+    # Sem data → linha omitida, não placeholder.
+    assert "if (momento)" in conteudo
+    # Fuso de Brasília explícito na formatação do card.
+    assert 'timeZone: "America/Sao_Paulo"' in conteudo
+    # Classes dos relativo/curto do espelho: agora / Xmin / Xh / Xd.
+    for trecho in ('"agora"', "min", "h ", "d "):
+        assert trecho in conteudo
