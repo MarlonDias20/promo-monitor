@@ -54,6 +54,13 @@ if _nitter_base and _nitter_base not in NITTER_INSTANCES:
 FALHAS_PARA_ROTACIONAR = int(os.getenv("FALHAS_PARA_ROTACIONAR", "2"))
 
 # ------------------------------------------------------------------
+# Idade máxima de ingestão (horas) — o robô é de tempo real: tweet mais
+# velho que isso é descartado (promoção velha não dá para aproveitar).
+# 48h cobre fim de semana e bugs de ontem ainda vivos; 0 desliga.
+# ------------------------------------------------------------------
+IDADE_MAXIMA_INGESTAO_HORAS = float(os.getenv("IDADE_MAXIMA_INGESTAO_HORAS", "48"))
+
+# ------------------------------------------------------------------
 # Webhook do classificador — um agente OpenBot acordado por POST assinado
 # (x-openbot-signature HMAC-SHA256; delivery ID = hash do tweet). O segredo
 # é gerado pelo Marlon nas configurações da rotina e chega por env.

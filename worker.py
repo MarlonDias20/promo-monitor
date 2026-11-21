@@ -37,6 +37,7 @@ class RSSWorker:
         nitter_base: str = "https://nitter.privacydev.net",
         instancias: Optional[list[str]] = None,
         falhas_para_rotacionar: int = 2,
+        idade_maxima_horas: float = 48.0,
     ):
         """
         perfis: lista de @handles a monitorar, ex: ["@opromocionista", "@pelando"]
@@ -49,6 +50,7 @@ class RSSWorker:
         """
         self.perfis = [p.lstrip("@") for p in perfis]
         self.falhas_para_rotacionar = max(1, falhas_para_rotacionar)
+        self.idade_maxima_horas = idade_maxima_horas
 
         lista = instancias or [nitter_base]
         self.instancias = [u.rstrip("/") for u in lista]
@@ -67,10 +69,14 @@ class RSSWorker:
     def fetch_new_tweets(self) -> list[Tweet]:
         """
         Itera todos os perfis configurados e retorna apenas tweets novos
-        (não vistos desde que o worker iniciou e não existentes no banco).
+        (não vistos desde que o worker iniciou e não existentes no banco)
+        e DENTRO do prazo de ingestão: promoção velha não dá para aproveitar,
+        então tweet publicado há mais de `idade_maxima_horas` é descartado
+        (marcado como visto, para não reavaliar o mesmo tweet a cada ciclo).
         Um perfil que falha em TODAS as instâncias não para os demais.
         """
         novos: list[Tweet] = []
+        descartados_por_idade = 0
 
         for perfil in self.perfis:
             try:
@@ -78,14 +84,33 @@ class RSSWorker:
                 for tweet in tweets:
                     if tweet.hash not in self._hashes_vistos:
                         self._hashes_vistos.add(tweet.hash)
+                        if self._idade_excedida(tweet):
+                            descartados_por_idade += 1
+                            continue
                         novos.append(tweet)
                         logger.info(f"Novo tweet de @{perfil}: {tweet.url}")
             except Exception as e:
                 logger.warning(f"Falha ao buscar @{perfil}: {e}")
                 # Continua pros próximos perfis — um erro não para tudo
 
+        if descartados_por_idade:
+            logger.info(
+                f"{descartados_por_idade} tweet(s) descartado(s) por idade — "
+                f"acima de {self.idade_maxima_horas:.0f}h de ingestão."
+            )
         logger.debug(f"Ciclo concluído — {len(novos)} tweets novos encontrados")
         return novos
+
+    def _idade_excedida(self, tweet: Tweet) -> bool:
+        """
+        Limite 0 desliga o filtro. Sem publicado_em (parse do feed falhou e
+        virou 'agora') nunca descarta — falha de parse não pode travar a
+        ingestão em tempo real.
+        """
+        if not self.idade_maxima_horas or tweet.publicado_em is None:
+            return False
+        idade_horas = (datetime.utcnow() - tweet.publicado_em).total_seconds() / 3600
+        return idade_horas > self.idade_maxima_horas
 
     def sync_hashes_from_db(self, hashes: list[str]):
         """
