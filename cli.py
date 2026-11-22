@@ -78,10 +78,15 @@ def cmd_notificar(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="cli.py notificar", add_help=False)
     parser.add_argument("hash")
     parser.add_argument("--canal", required=True, choices=["whatsapp", "telegram", "ambos"])
+    parser.add_argument(
+        "--forcar",
+        action="store_true",
+        help="pula a checagem de duplicata (reenvio manual)",
+    )
     try:
         parsed = parser.parse_args(args)
     except SystemExit:
-        _erro("uso: cli.py notificar HASH --canal whatsapp|telegram|ambos")
+        _erro("uso: cli.py notificar HASH --canal whatsapp|telegram|ambos [--forcar]")
         return 1
 
     db = Database(config.DATABASE_URL)
@@ -90,6 +95,19 @@ def cmd_notificar(args: list[str]) -> int:
     if promocao is None:
         _erro(f"hash desconhecido: {parsed.hash}")
         return 1
+
+    # Dedup de produto: perfis repetem promoções uns dos outros — se o
+    # mesmo produto/loja já foi notificado dentro da janela, marca e pula
+    # sem enviar (a checagem é SQL local, zero custo de IA). --forcar pula.
+    if not parsed.forcar:
+        original = db.buscar_duplicata_recente(promocao, config.DEDUP_JANELA_HORAS)
+        if original is not None:
+            db.marcar_duplicata(promocao.id)
+            print(
+                f"PULADA: produto/loja já notificado por @{original.perfil_origem} "
+                f"({original.tweet_url}) — marcada como duplicata, nenhum canal enviado."
+            )
+            return 0
 
     enviados = []
     if parsed.canal in ("whatsapp", "ambos"):
@@ -115,6 +133,9 @@ def cmd_notificar(args: list[str]) -> int:
             print("Telegram: enviado" if ok else "Telegram: FALHOU (veja o log)")
 
     if enviados and any(enviados):
+        # Fecha o ciclo do dedup: a próxima promo igual acha esta como
+        # "já notificada" dentro da janela (SQL local, sem custo de IA).
+        db.marcar_notificado(promocao.id)
         return 0
     _erro("nenhum canal enviou")
     return 1
