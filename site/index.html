@@ -104,6 +104,10 @@
   .t-p .badge { background: var(--p-badge); color: var(--p-texto); }
   .urgencia { font-size: 12px; font-weight: 600; color: var(--texto-suave); }
   .analisando { font-size: 12px; font-style: italic; color: var(--texto-suave); }
+  .badge-repetida {
+    font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 8px;
+    background: var(--n-badge); color: var(--n-texto);
+  }
 
   h3 { font-size: 17px; font-weight: 600; margin: 0; }
   .loja {
@@ -265,6 +269,12 @@ function card(p) {
   const badge = no("span", "badge");
   texto(badge, BADGES[p.tier] || String(p.tier));
   topo.appendChild(badge);
+  if (p.duplicata) {
+    const repetida = no("span", "badge-repetida");
+    repetida.title = "Produto/loja já noticiado por outro perfil dentro da janela — não reenviada no Telegram.";
+    texto(repetida, "repetida");
+    topo.appendChild(repetida);
+  }
   if (p.tier === "P") {
     const analisando = no("span", "analisando");
     texto(analisando, "analisando…");

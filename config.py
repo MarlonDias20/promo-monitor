@@ -61,6 +61,12 @@ FALHAS_PARA_ROTACIONAR = int(os.getenv("FALHAS_PARA_ROTACIONAR", "2"))
 IDADE_MAXIMA_INGESTAO_HORAS = float(os.getenv("IDADE_MAXIMA_INGESTAO_HORAS", "48"))
 
 # ------------------------------------------------------------------
+# Dedup de produto (horas): promo S/A cujo produto/loja já foi notificado
+# dentro desta janela por outro perfil não é reenviada. 0 desliga.
+# ------------------------------------------------------------------
+DEDUP_JANELA_HORAS = float(os.getenv("DEDUP_JANELA_HORAS", "24"))
+
+# ------------------------------------------------------------------
 # Webhook do classificador — um agente OpenBot acordado por POST assinado
 # (x-openbot-signature HMAC-SHA256; delivery ID = hash do tweet). O segredo
 # é gerado pelo Marlon nas configurações da rotina e chega por env.

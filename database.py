@@ -78,6 +78,10 @@ class Promocao(Base):
     # análise; disparo retentado no ciclo seguinte enquanto sem resposta.
     webhook_disparado_em = Column(DateTime, nullable=True)
 
+    # Dedup de produto: promo cujo produto/loja já foi notificado dentro
+    # da janela por outro perfil — marcada em vez de reenviada.
+    duplicata          = Column(Boolean, default=False, nullable=False)
+
 
 # ------------------------------------------------------------------
 # Database — classe principal de acesso
@@ -111,6 +115,14 @@ class Database:
                 ))
                 conn.commit()
                 logger.info("Migração aplicada: coluna 'webhook_disparado_em' adicionada.")
+            except Exception:
+                pass  # coluna já existe — ignorar
+            try:
+                conn.execute(text(
+                    "ALTER TABLE promocoes ADD COLUMN duplicata BOOLEAN NOT NULL DEFAULT 0"
+                ))
+                conn.commit()
+                logger.info("Migração aplicada: coluna 'duplicata' adicionada.")
             except Exception:
                 pass  # coluna já existe — ignorar
 
@@ -259,6 +271,7 @@ class Database:
                     "conteudo": p.conteudo,
                     "publicado_em": p.publicado_em.isoformat() if p.publicado_em else None,
                     "criado_em": p.criado_em.isoformat() if p.criado_em else None,
+                    "duplicata": bool(p.duplicata),
                 }
                 for p in promos
             ]
@@ -272,6 +285,56 @@ class Database:
         with self._session() as s:
             s.query(Promocao).filter(Promocao.id == promocao_id).update(
                 {"webhook_disparado_em": datetime.utcnow()}
+            )
+
+    def buscar_duplicata_recente(self, promocao: Promocao, janela_horas: float) -> Optional[Promocao]:
+        """
+        Promoção JÁ notificada, dentro da janela, com o mesmo produto
+        (trim + casefold) e loja compatível — perfis repetem promoções uns
+        dos outros e o Marlon não quer receber duas vezes.
+
+        Lojas ambas preenchidas e DIFERENTES não são duplicata (mesmo
+        produto em lojas distintas são promoções válidas); loja ausente em
+        qualquer lado compara só o produto. Produto nulo nunca bloqueia.
+        Janela 0 desliga. Retorna a original ou None.
+        """
+        if not janela_horas or not promocao.produto or not promocao.publicado_em:
+            return None
+
+        alvo = promocao.produto.strip().casefold()
+        limite = promocao.publicado_em - timedelta(hours=janela_horas)
+        with self._Session() as s:
+            candidatas = (
+                s.query(Promocao)
+                .filter(
+                    Promocao.tweet_hash != promocao.tweet_hash,
+                    Promocao.notificado.is_(True),
+                    Promocao.duplicata.is_(False),
+                    Promocao.produto.isnot(None),
+                    Promocao.publicado_em.isnot(None),
+                    Promocao.publicado_em >= limite,
+                )
+                .order_by(Promocao.publicado_em.desc())
+                .limit(200)
+                .all()
+            )
+            for candidata in candidatas:
+                if candidata.produto.strip().casefold() != alvo:
+                    continue
+                if (
+                    promocao.loja
+                    and candidata.loja
+                    and promocao.loja.strip().casefold() != candidata.loja.strip().casefold()
+                ):
+                    continue
+                return candidata
+            return None
+
+    def marcar_duplicata(self, promocao_id: int):
+        """Duplicata confirmada: sai da fila de notificação sem reenviar."""
+        with self._session() as s:
+            s.query(Promocao).filter(Promocao.id == promocao_id).update(
+                {"duplicata": True, "notificado": True}
             )
 
     def buscar_pendentes_webhook(self, tentar_novamente_apos: timedelta = timedelta(0)) -> list[Promocao]:

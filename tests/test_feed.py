@@ -32,6 +32,7 @@ CAMPOS_DO_CONTRATO = {
     "id", "tier", "produto", "categoria", "loja", "desconto_estimado",
     "preco_original", "preco_promocional", "urgencia", "motivo",
     "perfil_origem", "tweet_url", "conteudo", "publicado_em", "criado_em",
+    "duplicata",
 }
 
 
