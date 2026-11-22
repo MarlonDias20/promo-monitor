@@ -243,8 +243,16 @@ class RSSWorker:
         return texto
 
     def _gerar_hash(self, conteudo: str) -> str:
-        """MD5 do conteúdo — identifica duplicatas independente de horário."""
-        return hashlib.md5(conteudo.encode("utf-8")).hexdigest()
+        """
+        MD5 do conteúdo — identifica duplicatas independente de horário.
+        URLs de instâncias Nitter saem antes: o quote embutido no texto
+        varia pela instância que serviu o feed, e o MESMO tweet visto por
+        três instâncias precisa cair no MESMO hash (senão ingestão e
+        classificação triplicam).
+        """
+        limpo = re.sub(r"https?://[A-Za-z0-9.-]*nitter[^ ]*", "", conteudo)
+        limpo = re.sub(r"\s+", " ", limpo).strip()
+        return hashlib.md5(limpo.encode("utf-8")).hexdigest()
 
     def _parsear_data(self, entry) -> datetime:
         """Converte a data do feed para datetime. Usa agora como fallback."""

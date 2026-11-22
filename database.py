@@ -289,13 +289,16 @@ class Database:
 
     def buscar_duplicata_recente(self, promocao: Promocao, janela_horas: float) -> Optional[Promocao]:
         """
-        Promoção JÁ notificada, dentro da janela, com o mesmo produto
-        (trim + casefold) e loja compatível — perfis repetem promoções uns
-        dos outros e o Marlon não quer receber duas vezes.
+        Promoção JÁ CLASSIFICADA como S/A, dentro da janela, com o mesmo
+        produto (trim + casefold) e loja compatível — perfis repetem
+        promoções uns dos outros e o Marlon não quer receber duas vezes.
 
-        Lojas ambas preenchidas e DIFERENTES não são duplicata (mesmo
-        produto em lojas distintas são promoções válidas); loja ausente em
-        qualquer lado compara só o produto. Produto nulo nunca bloqueia.
+        Candidata vale mesmo se ainda não marcou notificado (o envio do
+        Telegram pode não ter registrado): se o produto já APARECEU como
+        S/A recente, a repetida não precisa reenviar. Lojas ambas
+        preenchidas e DIFERENTES não são duplicata (mesmo produto em
+        lojas distintas são promoções válidas); loja ausente em qualquer
+        lado compara só o produto. Produto nulo nunca bloqueia.
         Janela 0 desliga. Retorna a original ou None.
         """
         if not janela_horas or not promocao.produto or not promocao.publicado_em:
@@ -308,7 +311,7 @@ class Database:
                 s.query(Promocao)
                 .filter(
                     Promocao.tweet_hash != promocao.tweet_hash,
-                    Promocao.notificado.is_(True),
+                    Promocao.tier.in_(["S", "A"]),
                     Promocao.duplicata.is_(False),
                     Promocao.produto.isnot(None),
                     Promocao.publicado_em.isnot(None),

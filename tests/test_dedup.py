@@ -128,3 +128,15 @@ def test_listar_recentes_leva_duplicata(tmp_path):
     por_perfil = {p["perfil_origem"]: p for p in db.listar_recentes(10)}
     assert por_perfil["p2"]["duplicata"] is True
     assert por_perfil["p1"]["duplicata"] is False
+
+
+def test_duplicata_candidata_sem_notificado_ainda_conta():
+    """Regressão do perfume 212: a primeira promo estava classificada S/A
+    mas com notificado=0 quando a segunda consultou — candidata S/A dentro
+    da janela vale mesmo sem o registro de envio."""
+    db = Database("sqlite:///:memory:")
+    _classificar(db, "h1", perfil="p1", loja=None)  # sem marcar_notificado
+
+    repetida = _classificar(db, "h2", perfil="p2", loja="Mercado Livre")
+    achou = db.buscar_duplicata_recente(repetida, janela_horas=24)
+    assert achou is not None and achou.tweet_hash == "h1"
