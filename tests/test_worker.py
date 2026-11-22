@@ -180,3 +180,14 @@ def test_limite_apertado_descarta_recente(monkeypatch):
     worker = RSSWorker(perfis=["p"], idade_maxima_horas=1)
     monkeypatch.setattr(worker, "_fetch_perfil_com_fallback", lambda perfil: [_tweet_idade(3)])
     assert worker.fetch_new_tweets() == []
+
+
+def test_mesmo_tweet_de_instancias_diferentes_cai_no_mesmo_hash():
+    """O quote embutido no texto varia pela instância Nitter que serviu o
+    feed — o MESMO tweet precisa cair no MESMO hash, senão ingestão e
+    classificação triplicam."""
+    worker = _worker_com(RSS_PERFIL)
+    a = worker._gerar_hash("olha isso — https://nitter.netbub.com/fulano/status/1#m promo")
+    b = worker._gerar_hash("olha isso — http://nitter.mie.foundation/fulano/status/1 promo")
+    c = worker._gerar_hash("olha isso — promo")
+    assert a == b == c
