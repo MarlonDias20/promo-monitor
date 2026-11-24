@@ -98,8 +98,18 @@ def ciclo():
     """
     Coleta + dispara + exporta. Tudo que pode demorar fica na fila; o
     ciclo em si é rápido para a 'hora do post' não esperar ninguém.
+    Um erro transitório (banco travado por manutenção concorrente, por
+    exemplo) pula o ciclo com um aviso — o próximo tenta de novo; o
+    processo não pode morrer por isso.
     """
     logger.debug("Iniciando ciclo de coleta...")
+    try:
+        _ciclo_interno()
+    except Exception as e:
+        logger.warning(f"Ciclo pulado por erro transitório ({type(e).__name__}: {e}) — o próximo tenta de novo.")
+
+
+def _ciclo_interno():
     novos = worker.fetch_new_tweets()
 
     # 1. Grava cada tweet novo como PENDENTE e enfileira o disparo.
