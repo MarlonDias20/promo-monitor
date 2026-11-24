@@ -111,9 +111,12 @@ def ciclo():
         fila.put(promocao)
         enfileirados += 1
 
-    # 2. Retentativa: pendentes sem resposta voltam para a fila.
+    # 2. Retentativa: pendentes sem resposta voltam para a fila — em LOTE.
+    # Sem o teto, um backlog acumulado (por exemplo, após um downtime)
+    # viraria uma rajada de webhooks de uma vez; com ele o agente drena
+    # aos poucos, os mais recentes primeiro.
     pendentes = db.buscar_pendentes_webhook(tentar_novamente_apos=timedelta(seconds=config.INTERVALO_POLLING))
-    for promocao in pendentes:
+    for promocao in pendentes[: max(1, config.LOTE_REENVIO_WEBHOOK)]:
         fila.put(promocao)
 
     # 3. Feed do site — sempre fresco a cada ciclo (pendentes aparecem

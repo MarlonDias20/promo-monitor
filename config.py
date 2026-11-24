@@ -74,6 +74,11 @@ DEDUP_JANELA_HORAS = float(os.getenv("DEDUP_JANELA_HORAS", "24"))
 PROMO_WEBHOOK_URL = os.getenv("PROMO_WEBHOOK_URL", "")
 PROMO_WEBHOOK_SECRET = os.getenv("PROMO_WEBHOOK_SECRET", "")
 
+# Teto de reenvios de pendentes por ciclo: um backlog grande (downtime
+# longo, por exemplo) não pode virar uma rajada de eventos de uma vez —
+# o agente drena aos poucos, ciclo a ciclo.
+LOTE_REENVIO_WEBHOOK = int(os.getenv("LOTE_REENVIO_WEBHOOK", "20"))
+
 # ------------------------------------------------------------------
 # Feed do site — promos.json exportado a cada ciclo
 # ------------------------------------------------------------------
