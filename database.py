@@ -32,7 +32,10 @@ class Base(DeclarativeBase):
 def criar_engine(database_url: str):
     kwargs = {}
     if database_url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
+        # timeout: espera até 30s em vez de estourar "database is locked"
+        # quando uma manutenção concorre com o ciclo do worker — o lock
+        # transitório não pode derrubar o processo.
+        kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
     return create_engine(database_url, **kwargs)
 
 
