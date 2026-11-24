@@ -11,7 +11,19 @@ import pytest
 
 from worker import RSSWorker
 
-RSS_PERFIL = """<?xml version="1.0" encoding="UTF-8"?>
+
+def _rss_perfil(minutos_atras: int = 5) -> str:
+    """RSS de exemplo com pubDate DINÂMICO — tweets frescos não importam o
+    dia em que a suíte roda (o filtro de idade de ingestão descartaria uma
+    data fixa no passado, quebrando os testes conforme o calendário anda)."""
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime.now(timezone.utc) - timedelta(minutes=minutos_atras)
+
+    def pub(min: int) -> str:
+        return (base + timedelta(minutes=min)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>@perfildeteste</title>
@@ -19,23 +31,27 @@ RSS_PERFIL = """<?xml version="1.0" encoding="UTF-8"?>
       <title>BUG DE PREÇO! Notebook por R$0,01 na Kabum</title>
       <link>https://x.com/perfildeteste/status/111</link>
       <description>BUG DE PREÇO! Notebook por R$0,01 na Kabum</description>
-      <pubDate>Fri, 20 Nov 2026 10:00:00 GMT</pubDate>
+      <pubDate>{pub(0)}</pubDate>
     </item>
     <item>
       <title>Cupom 10% OFF em tudo</title>
       <link>https://x.com/perfildeteste/status/222</link>
       <description>&lt;b&gt;Cupom&lt;/b&gt; PROMO10 dá 10% em tudo &lt;br/&gt; corre</description>
-      <pubDate>Fri, 20 Nov 2026 10:05:00 GMT</pubDate>
+      <pubDate>{pub(1)}</pubDate>
     </item>
     <item>
       <title>RT @outro: oferta</title>
       <link>https://x.com/perfildeteste/status/333</link>
       <description>RT @outro: oferta retuitada</description>
-      <pubDate>Fri, 20 Nov 2026 10:10:00 GMT</pubDate>
+      <pubDate>{pub(2)}</pubDate>
     </item>
   </channel>
 </rss>
 """
+
+
+def _rss() -> str:
+    return _rss_perfil()
 
 
 def _transport(resposta_por_host: dict[str, object]):
@@ -69,7 +85,7 @@ def _worker_com(rss: str, host: str = "nitter.test") -> RSSWorker:
 
 
 def test_fetch_coleta_tweets_e_ignora_retweets():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     tweets = worker.fetch_new_tweets()
 
     assert len(tweets) == 2  # o RT é descartado
@@ -81,13 +97,13 @@ def test_fetch_coleta_tweets_e_ignora_retweets():
 
 
 def test_deduplicacao_segundo_fetch_nao_traz_nada():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     assert len(worker.fetch_new_tweets()) == 2
     assert len(worker.fetch_new_tweets()) == 0
 
 
 def test_urls_e_perfis_corretos():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     tweets = worker.fetch_new_tweets()
     assert all(t.url.startswith("https://x.com/") for t in tweets)
     assert all(t.perfil_origem == "perfildeteste" for t in tweets)
@@ -95,22 +111,22 @@ def test_urls_e_perfis_corretos():
 
 
 def test_hash_do_mesmo_conteudo_eh_igual():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     t1, t2 = worker.fetch_new_tweets()
     assert t1.hash != t2.hash  # conteúdos diferentes
     assert worker._gerar_hash("promo") == worker._gerar_hash("promo")
 
 
 def test_sync_hashes_do_banco_evita_reprocessar():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     tweets = worker.fetch_new_tweets()
-    worker2 = _worker_com(RSS_PERFIL)
+    worker2 = _worker_com(_rss())
     worker2.sync_hashes_from_db([t.hash for t in tweets])
     assert worker2.fetch_new_tweets() == []
 
 
 def test_falha_num_perfil_nao_para_os_demais(caplog):
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     worker.perfis = ["perfildeteste", "perfilmorto"]
     # O perfil morto não está no mock → 503 → warning, o outro segue.
     tweets = worker.fetch_new_tweets()
@@ -118,7 +134,7 @@ def test_falha_num_perfil_nao_para_os_demais(caplog):
 
 
 def test_health_check_da_lista_configurada():
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     worker._client.close()
     import httpx
 
@@ -186,7 +202,7 @@ def test_mesmo_tweet_de_instancias_diferentes_cai_no_mesmo_hash():
     """O quote embutido no texto varia pela instância Nitter que serviu o
     feed — o MESMO tweet precisa cair no MESMO hash, senão ingestão e
     classificação triplicam."""
-    worker = _worker_com(RSS_PERFIL)
+    worker = _worker_com(_rss())
     a = worker._gerar_hash("olha isso — https://nitter.netbub.com/fulano/status/1#m promo")
     b = worker._gerar_hash("olha isso — http://nitter.mie.foundation/fulano/status/1 promo")
     c = worker._gerar_hash("olha isso — promo")
